@@ -14,4 +14,5 @@ public sealed class SlideItem
     public string Title { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
     public string Layout { get; set; } = "title-and-content";
+    public string SpeakerNotes { get; set; } = string.Empty;
 }
