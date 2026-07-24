@@ -53,14 +53,31 @@ public static class HtmlDeckExporter
                 ul { position: relative; z-index: 1; max-width: 74%; display: grid; gap: 1.5vh;
                      margin: 1vh 0; padding-left: 1.3em; font-size: clamp(1.05rem, 1.8vw, 2rem);
                      line-height: 1.55; }
-                .visual { position: relative; z-index: 1; max-width: 68%; margin-top: auto;
-                          padding: 1.5vh 1.5vw; border-left: .35vw solid var(--accent);
-                          background: color-mix(in srgb, var(--surface) 82%, transparent);
-                          color: var(--muted); font-size: clamp(.8rem, 1.1vw, 1.15rem); }
-                .variant-accent .visual, .variant-dark .visual {
-                  color: rgba(255,255,255,.8); background: rgba(255,255,255,.1);
-                  border-left-color: white;
+                .meta-list { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: .8rem; }
+                .meta-list li { padding: .55rem .9rem; border: 1px solid color-mix(in srgb, currentColor 24%, transparent);
+                                font-size: clamp(.82rem, 1.1vw, 1.1rem); }
+                .split-grid { position: relative; z-index: 1; display: grid; grid-template-columns: 1fr 1fr;
+                              gap: 2.2vw; width: 88%; margin-top: 2vh; }
+                .split-panel { display: grid; align-content: start; gap: 1rem; padding: 2vw;
+                               border-top: .45vw solid var(--accent);
+                               background: color-mix(in srgb, var(--surface) 90%, transparent); }
+                .split-item { font-size: clamp(1.05rem, 1.6vw, 1.75rem); line-height: 1.45; }
+                .focal-layout { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(32%, .75fr) 1fr;
+                                align-items: center; gap: 5vw; width: 90%; flex: 1; }
+                .focal-value { color: var(--accent); font-weight: 900; font-size: clamp(2.6rem, 6vw, 6.8rem);
+                               line-height: 1.02; letter-spacing: -.045em; overflow-wrap: anywhere; }
+                .focal-layout ul { max-width: none; margin: 0; }
+                .summary-grid { position: relative; z-index: 1; display: grid;
+                                grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.5vw;
+                                width: 92%; margin-top: 3vh; list-style: none; padding: 0; }
+                .summary-grid li { min-height: 24vh; padding: 2vw; display: flex; align-items: flex-end;
+                                   border-top: .45vw solid currentColor;
+                                   background: color-mix(in srgb, var(--surface) 10%, transparent);
+                                   font-size: clamp(1rem, 1.45vw, 1.55rem); line-height: 1.45; }
+                .variant-accent .split-panel, .variant-dark .split-panel {
+                  background: rgba(255,255,255,.09); border-top-color: white;
                 }
+                .variant-accent .focal-value, .variant-dark .focal-value { color: white; }
                 .layout-cover, .layout-section { justify-content: center; }
                 .layout-cover h1, .layout-section h1 { max-width: 78%; font-size: clamp(3rem, 7vw, 7.5rem); }
                 .layout-two-column ul { columns: 2; column-gap: 7vw; max-width: 86%; }
@@ -95,8 +112,7 @@ public static class HtmlDeckExporter
                       <div class="label">{{Encode(slide.SectionLabel)}}</div>
                       <h1>{{Encode(slide.Title)}}</h1>
                       <div class="subtitle">{{Encode(slide.Subtitle)}}</div>
-                      {{RenderContent(slide.Content)}}
-                      {{RenderVisual(slide.VisualBrief)}}
+                      {{RenderContent(slide)}}
                     </section>
                 """);
         }
@@ -132,19 +148,62 @@ public static class HtmlDeckExporter
         return html.ToString();
     }
 
-    private static string RenderContent(string content)
+    private static string RenderContent(SlideItem slide)
     {
-        var items = content
+        var items = slide.Content
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(line => $"<li>{Encode(line.TrimStart('•', '-', ' '))}</li>");
+            .Select(line => line.TrimStart('•', '-', ' '))
+            .Where(line => !string.IsNullOrWhiteSpace(line))
+            .ToArray();
 
-        return $"<ul>{string.Join(string.Empty, items)}</ul>";
+        if (items.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        return slide.Layout switch
+        {
+            "cover" or "section" => RenderList(items, "meta-list"),
+            "two-column" => RenderTwoColumn(items),
+            "formula" or "data-focus" => RenderFocal(items),
+            "summary" => RenderList(items.Take(3), "summary-grid"),
+            _ => RenderList(items)
+        };
     }
 
-    private static string RenderVisual(string visualBrief) =>
-        string.IsNullOrWhiteSpace(visualBrief)
+    private static string RenderList(IEnumerable<string> items, string? className = null)
+    {
+        var classAttribute = string.IsNullOrWhiteSpace(className)
             ? string.Empty
-            : $"<div class=\"visual\"><strong>視覺建議：</strong> {Encode(visualBrief)}</div>";
+            : $" class=\"{className}\"";
+        var listItems = items.Select(item => $"<li>{Encode(item)}</li>");
+        return $"<ul{classAttribute}>{string.Join(string.Empty, listItems)}</ul>";
+    }
+
+    private static string RenderTwoColumn(string[] items)
+    {
+        var middle = (int)Math.Ceiling(items.Length / 2d);
+        var left = items.Take(middle)
+            .Select(item => $"<div class=\"split-item\">{Encode(item)}</div>");
+        var right = items.Skip(middle)
+            .Select(item => $"<div class=\"split-item\">{Encode(item)}</div>");
+
+        return
+            $"<div class=\"split-grid\">" +
+            $"<div class=\"split-panel\">{string.Join(string.Empty, left)}</div>" +
+            $"<div class=\"split-panel\">{string.Join(string.Empty, right)}</div>" +
+            $"</div>";
+    }
+
+    private static string RenderFocal(string[] items)
+    {
+        var explanation = items.Skip(1);
+        return
+            $"<div class=\"focal-layout\">" +
+            $"<div class=\"focal-value\">{Encode(items[0])}</div>" +
+            RenderList(explanation) +
+            $"</div>";
+    }
 
     private static string Encode(string? value) => WebUtility.HtmlEncode(value ?? string.Empty);
 
