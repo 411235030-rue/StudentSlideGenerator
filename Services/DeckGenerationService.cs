@@ -146,7 +146,26 @@ public sealed class GeminiDeckGenerationService(
             """;
 
         var input = BuildDocumentInput(extension, fileBytes, documentText, prompt);
-        return await Se        var prompt =
+        return await SendStructuredRequestAsync(
+            apiKey,
+            input,
+            BuildOutlineSchema(),
+            "大綱分析",
+            cancellationToken);
+    }
+
+    private async Task<string> GenerateDesignedDeckAsync(
+        string apiKey,
+        string fileName,
+        string extension,
+        byte[] fileBytes,
+        string? documentText,
+        string audience,
+        OutlinePlan outline,
+        string outlineJson,
+        CancellationToken cancellationToken)
+    {
+        var prompt =
             $"""
             你是簡報總監、資訊設計師與繁體中文編輯。你的輸出會被程式直接渲染成 16:9 HTML 簡報，
             不是設計提案、不是大綱、也不是給人類設計師的建議。請交付已完成設計決策的結構化資料。
@@ -200,17 +219,6 @@ public sealed class GeminiDeckGenerationService(
             6. 最後逐頁檢查：是否忠於來源、是否能從教室後排閱讀、是否與前後頁構圖重複。
 
             只回傳符合 schema 的 JSON。不要輸出 Markdown、解說、設計評語或任何 JSON 以外的內容。
-            """;. visualBrief 要具體描述可呈現的圖表、流程、公式、對照或重點數字；
-               沒有合適視覺時可留空，禁止假裝文件含有不存在的圖片。
-
-            排版規則：
-            1. 先依主題選擇一致的專業 theme，配色須有可讀對比。
-            2. 每頁選擇最適合的 layout：cover、section、title-and-content、
-               two-column、quote、data-focus、formula、summary。
-            3. cover 只用於第一頁；summary 只用於最後一頁。
-            4. 連續頁面不得全部使用同一 layout，版面要有節奏。
-            5. backgroundVariant 只能是 base、surface、accent、dark；
-               重點頁可用 accent 或 dark，其餘保持節制。
             """;
 
         var input = BuildDocumentInput(extension, fileBytes, documentText, prompt);
