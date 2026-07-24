@@ -114,6 +114,23 @@ public static class HtmlDeckExporter
                 .variant-accent .split-item:not(:first-of-type), .variant-dark .split-item:not(:first-of-type) {
                   color: rgba(255,255,255,.7);
                 }
+                .process-flow { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+                                gap: 0; width: 100%; margin: auto 0; counter-reset: step; }
+                .process-step { position: relative; min-height: 27vh; display: flex; flex-direction: column;
+                                justify-content: flex-end; padding: 2vw 2.2vw 2vw 0;
+                                border-top: .42vw solid var(--accent); counter-increment: step;
+                                font-size: clamp(1rem, 1.4vw, 1.6rem); line-height: 1.45; }
+                .process-step:not(:last-child) { margin-right: 2.2vw; }
+                .process-step:not(:last-child)::after { content: "→"; position: absolute; right: -1.55vw; top: 48%;
+                                                        color: var(--accent); font-size: 1.6vw; font-weight: 900; }
+                .process-step::before { content: "0" counter(step); margin-bottom: auto;
+                                        color: var(--muted); font-size: .82rem; font-weight: 900; letter-spacing: .14em; }
+                .variant-accent .process-step, .variant-dark .process-step { border-top-color: white; }
+                .variant-accent .process-step::before, .variant-dark .process-step::before {
+                  color: rgba(255,255,255,.68);
+                }
+                .variant-accent .process-step:not(:last-child)::after,
+                .variant-dark .process-step:not(:last-child)::after { color: white; }
                 .focal-layout { display: grid; grid-template-columns: minmax(36%, .8fr) 1fr;
                                 align-items: center; gap: 5vw; width: 100%; flex: 1; }
                 .focal-value { color: var(--accent); font-weight: 950; font-size: clamp(3rem, 6.3vw, 7.2rem);
@@ -142,17 +159,29 @@ public static class HtmlDeckExporter
                 }
                 .progress { position: fixed; z-index: 20; left: 0; bottom: 0; height: 4px;
                             background: var(--accent); transition: width .2s; }
-                .counter, .help { position: fixed; z-index: 20; bottom: 1.2vh; padding: .45rem .65rem;
-                                  color: rgba(255,255,255,.78); background: rgba(8,10,14,.72);
-                                  backdrop-filter: blur(8px); font-size: 11px; letter-spacing: .04em; }
-                .counter { right: 1vw; }
-                .help { left: 1vw; }
+                .controls { position: fixed; z-index: 20; left: 50%; bottom: 1.5vh;
+                            display: flex; align-items: center; gap: .25rem; padding: .35rem;
+                            transform: translateX(-50%); color: white; background: rgba(8,10,14,.78);
+                            backdrop-filter: blur(10px); }
+                .controls button { min-width: 38px; height: 34px; padding: 0 .7rem; color: white;
+                                   background: transparent; border: 0; cursor: pointer; font: inherit; }
+                .controls button:hover { background: rgba(255,255,255,.12); }
+                .controls button:disabled { opacity: .3; cursor: default; }
+                .counter { min-width: 66px; text-align: center; color: rgba(255,255,255,.76);
+                           font-size: 11px; letter-spacing: .06em; }
+                .help { position: fixed; z-index: 20; left: 1vw; bottom: 1.5vh; padding: .45rem .65rem;
+                        color: rgba(255,255,255,.72); background: rgba(8,10,14,.72);
+                        font-size: 11px; letter-spacing: .04em; }
+                .speaker-notes { display: none; position: absolute; z-index: 10; left: 5.5vw; right: 5.5vw; bottom: 6vh;
+                                 padding: 1.2rem 1.4rem; color: white; background: rgba(8,10,14,.94);
+                                 font-size: clamp(.8rem, 1vw, 1rem); line-height: 1.5; }
+                body.show-notes .slide.active .speaker-notes { display: block; }
                 @media print {
                   body { overflow: visible; background: white; }
                   .deck { width: auto; height: auto; }
                   .slide { position: relative; display: flex !important; width: 13.333in; height: 7.5in;
                            page-break-after: always; }
-                  .progress, .counter, .help { display: none; }
+                  .progress, .controls, .help, .speaker-notes { display: none !important; }
                 }
               </style>
             </head>
@@ -175,6 +204,7 @@ public static class HtmlDeckExporter
                         <div class="subtitle">{{Encode(slide.Subtitle)}}</div>
                         {{RenderContent(slide)}}
                       </div>
+                      {{RenderNotes(slide.SpeakerNotes)}}
                     </section>
                 """);
         }
@@ -183,24 +213,46 @@ public static class HtmlDeckExporter
             $$"""
               </main>
               <div class="progress" id="progress"></div>
-              <div class="help">← → 切換 · F11 全螢幕 · Ctrl+P 匯出 PDF</div>
-              <div class="counter" id="counter"></div>
+              <div class="help">← → 換頁 · F 全螢幕 · N 備註 · P 列印</div>
+              <nav class="controls" aria-label="簡報控制">
+                <button id="prev" type="button" title="上一頁">←</button>
+                <span class="counter" id="counter"></span>
+                <button id="next" type="button" title="下一頁">→</button>
+                <button id="fullscreen" type="button" title="全螢幕">⛶</button>
+                <button id="notes" type="button" title="講者備註">N</button>
+                <button id="print" type="button" title="列印或另存 PDF">PDF</button>
+              </nav>
               <script>
                 const slides = [...document.querySelectorAll('.slide')];
+                const previousButton = document.getElementById('prev');
+                const nextButton = document.getElementById('next');
                 let current = 0;
                 function show(index) {
                   current = Math.max(0, Math.min(index, slides.length - 1));
                   slides.forEach((slide, i) => slide.classList.toggle('active', i === current));
-                  document.getElementById('counter').textContent = `${current + 1} / ${slides.length}`;
-                  document.getElementById('progress').style.width = `${((current + 1) / slides.length) * 100}%`;
+                  document.getElementById('counter').textContent = (current + 1) + ' / ' + slides.length;
+                  document.getElementById('progress').style.width = (((current + 1) / slides.length) * 100) + '%';
+                  previousButton.disabled = current === 0;
+                  nextButton.disabled = current === slides.length - 1;
                 }
+                function toggleFullscreen() {
+                  if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
+                  else document.exitFullscreen?.();
+                }
+                previousButton.addEventListener('click', () => show(current - 1));
+                nextButton.addEventListener('click', () => show(current + 1));
+                document.getElementById('fullscreen').addEventListener('click', toggleFullscreen);
+                document.getElementById('notes').addEventListener('click', () => document.body.classList.toggle('show-notes'));
+                document.getElementById('print').addEventListener('click', () => window.print());
                 addEventListener('keydown', event => {
                   if (['ArrowRight', 'PageDown', ' '].includes(event.key)) show(current + 1);
                   if (['ArrowLeft', 'PageUp'].includes(event.key)) show(current - 1);
                   if (event.key === 'Home') show(0);
                   if (event.key === 'End') show(slides.length - 1);
+                  if (event.key.toLowerCase() === 'f') toggleFullscreen();
+                  if (event.key.toLowerCase() === 'n') document.body.classList.toggle('show-notes');
+                  if (event.key.toLowerCase() === 'p') window.print();
                 });
-                addEventListener('click', event => show(current + (event.clientX > innerWidth / 2 ? 1 : -1)));
                 show(0);
               </script>
             </body>
@@ -227,6 +279,7 @@ public static class HtmlDeckExporter
         {
             "cover" or "section" => RenderList(items, "meta-list"),
             "two-column" => RenderTwoColumn(items),
+            "process" => RenderProcess(items),
             "formula" or "data-focus" => RenderFocal(items),
             "quote" => RenderQuote(items),
             "summary" => RenderList(items.Take(3), "summary-grid"),
@@ -258,6 +311,15 @@ public static class HtmlDeckExporter
             $"</div>";
     }
 
+    private static string RenderProcess(string[] items)
+    {
+        var steps = items
+            .Take(5)
+            .Select(item => $"<div class=\"process-step\">{Encode(item)}</div>");
+
+        return $"<div class=\"process-flow\">{string.Join(string.Empty, steps)}</div>";
+    }
+
     private static string RenderFocal(string[] items)
     {
         var explanation = items.Skip(1);
@@ -281,6 +343,11 @@ public static class HtmlDeckExporter
             source +
             $"</div>";
     }
+
+    private static string RenderNotes(string? notes) =>
+        string.IsNullOrWhiteSpace(notes)
+            ? string.Empty
+            : $"<aside class=\"speaker-notes\"><strong>講者備註</strong><br>{Encode(notes)}</aside>";
 
     private static string Encode(string? value) => WebUtility.HtmlEncode(value ?? string.Empty);
 
