@@ -198,6 +198,7 @@ public sealed class GeminiDeckGenerationService(
             - section：只用於真正的章節轉場，文字極少，不得當一般內容頁。
             - title-and-content：只用於無法形成其他視覺關係的單純解說，全套不得超過三分之一。
             - two-column：用於比較、前後、問題／解法；content 必須正好 4 行，前 2 行屬左欄、後 2 行屬右欄。
+            - process：用於流程、階段、循環或操作步驟；content 依正確順序輸出 3～5 行，每行只放一個步驟。
             - quote：只有文件存在可核對的原文引言時使用，禁止自行創作引言。
             - data-focus：用於重點數字、關鍵名詞或結論；content 第一行必須是 20 字內的焦點，其餘行解釋意義。
             - formula：用於公式；content 第一行只放完整公式，其餘行依序解釋變數與用途。
@@ -418,7 +419,7 @@ public sealed class GeminiDeckGenerationService(
                             @enum = new[]
                             {
                                 "cover", "section", "title-and-content", "two-column",
-                                "quote", "data-focus", "formula", "summary"
+                                "process", "quote", "data-focus", "formula", "summary"
                             }
                         },
                         sectionLabel = new { type = "string" },
