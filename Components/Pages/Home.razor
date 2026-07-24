@@ -70,8 +70,8 @@
         }
 
         <div class="privacy-note">
-            <strong>開發階段說明</strong>
-            <p>目前使用示範產生器，不會把上傳內容送到外部 AI。</p>
+            <strong>Gemini 文件處理</strong>
+            <p>PDF 會保留圖片與圖表脈絡；DOCX、TXT、MD 會先擷取文字，再送至 Gemini。</p>
         </div>
     </aside>
 
@@ -177,11 +177,21 @@
             isGenerating = true;
             errorMessage = null;
             slideCount = Math.Clamp(slideCount, 3, 20);
+
+            await using var source = selectedFile.OpenReadStream(MaxFileSize);
+            using var buffer = new MemoryStream();
+            await source.CopyToAsync(buffer);
+
             deck = await DeckGenerator.GenerateAsync(
                 selectedFile.Name,
-                selectedFile.Size,
+                selectedFile.ContentType,
+                buffer.ToArray(),
                 audience,
                 slideCount);
+        }
+        catch (DeckGenerationException exception)
+        {
+            errorMessage = exception.Message;
         }
         catch (Exception)
         {
