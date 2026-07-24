@@ -117,36 +117,21 @@ public sealed class GeminiDeckGenerationService(
     {
         var prompt =
             $"""
-            你是資深簡報總編輯與資訊架構師。此階段只分析文件、建立教學敘事與切頁計畫，
-            不撰寫投影片全文，也不提供配色或裝飾建議。
+            你是資深簡報編輯與資訊架構師。此階段只分析文件並規劃大綱，不撰寫投影片全文。
 
             文件：{fileName}
             對象：{audience}
             深度模式：{detailMode}
 
-            先完整閱讀文件，再依下列順序工作：
-            1. 建立內容地圖：辨識章節、概念層級、定義、公式、流程、比較、案例、圖表、結論。
-            2. 找出簡報主張：觀眾看完後必須理解或記住的一句話。
-            3. 使用金字塔結構：結論或主張先行，再用來源中的數據、事實、公式、案例或推論支持。
-            4. 建立敘事弧線：
-               - 開場：背景、問題、重要性或觀眾痛點。
-               - 中段：核心概念、分析、比較、方法、證據與應用。
-               - 結尾：重點統整，以及適合此主題時才加入的建議或下一步。
-            5. 最後才決定頁數與各段配置。
-
-            切頁硬性規則：
-            1. 每頁只能回答一個明確問題或傳達一個核心訊息。
-            2. 定義、公式、流程、比較、案例與結論原則上分頁，禁止塞入同一張總覽頁。
-            3. 一個 section 的 keyPoints 若包含不同層級或不同用途的概念，必須拆成多頁。
-            4. 不得以「概述」「其他」「補充」將不相關內容硬併；不得為湊頁數重複內容。
-            5. 每個 section 的 slideCount 必須合理反映內容密度，且所有 slideCount 加總必須等於 recommendedSlideCount。
-            6. 第一頁預留封面、最後一頁預留真正的重點統整；中間頁面不得重複封面或目錄內容。
-            7. concise 為 6～8 頁；standard 為 9～12 頁；detailed 為 13～18 頁；
-               auto 依內容密度在 8～16 頁決定，不要機械式固定頁數。
-            8. 忠於文件，不得補造來源沒有的事實、數據、引言或案例。
-
-            輸出的 purpose 必須寫清楚該段對敘事的作用；keyPoints 必須是來源中的具體內容，
-            不得寫成「介紹背景」「說明概念」等空泛任務描述。
+            切頁原則：
+            1. 先辨識文件的章節、概念層級、定義、公式、流程、案例、圖表與結論。
+            2. 每張投影片只能傳達一個核心訊息。
+            3. 定義、公式、流程、比較、案例與結論若內容足夠，必須拆成不同頁。
+            4. 不得為湊頁數重複前一頁；也不得把三個以上核心概念塞在同一頁。
+            5. 先建立敘事：為何重要 → 核心概念 → 方法或證據 → 應用 → 結論。
+            6. concise 建議 6～8 頁；standard 建議 9～12 頁；detailed 建議 13～18 頁；
+               auto 則依文件密度在 8～16 頁間決定。
+            7. 忠於文件，不得補造來源未提供的專有事實。
             """;
 
         var input = BuildDocumentInput(extension, fileBytes, documentText, prompt);
@@ -387,7 +372,14 @@ public sealed class GeminiDeckGenerationService(
                 type = "object",
                 properties = new
                 {
-                    styleName = new { type = "string" },
+                    styleName = new
+                    {
+                        type = "string",
+                        @enum = new[]
+                        {
+                            "editorial", "academic-modern", "swiss", "data-led"
+                        }
+                    },
                     backgroundColor = ColorSchema("主要背景色"),
                     surfaceColor = ColorSchema("卡片或次要背景色"),
                     primaryColor = ColorSchema("主色"),
