@@ -156,7 +156,8 @@ public sealed class GeminiDeckGenerationService(
     {
         var prompt =
             $"""
-            你是簡報內容設計師與藝術指導。根據文件與已核定大綱，產生繁體中文的完整簡報設計資料。
+            你是簡報總監、資訊設計師與繁體中文編輯。你的輸出會被程式直接渲染成 16:9 HTML 簡報，
+            不是設計提案、不是大綱、也不是給人類設計師的建議。請交付已完成設計決策的結構化資料。
 
             文件：{fileName}
             對象：{audience}
@@ -165,22 +166,61 @@ public sealed class GeminiDeckGenerationService(
             已核定大綱：
             {outlineJson}
 
-            內容規則：
-            1. 嚴格依大綱順序，每頁只有一個核心訊息。
-            2. content 使用 2～5 個短重點，以換行分隔；投影文字要精簡。
-            3. subtitle 必須補充主旨，不能重複 title。
-            4. speakerNotes 說明依據、轉場與口頭補充，不能只是複製 content。
-            5. visualBrief 要具體描述可呈現的圖表、流程、公式、對照或重點數字；
-               沒有合適視覺時可留空，禁止假裝文件含有不存在的圖片。
+            核心任務：
+            1. 忠實保留文件中的定義、公式、因果、步驟、比較與結論，不得發明數據、圖片、引言或案例。
+            2. 把每頁做成「觀眾一眼知道重點」的投影畫面，而不是把講義濃縮成條列清單。
+            3. 先決定全套簡報的單一視覺概念，再依每頁的溝通目的選擇構圖。
+            4. title、subtitle、content 都是會直接顯示的最終文字，禁止放入任何製作備註。
 
-            排版規則：
-            1. 先依主題選擇一致的專業 theme，配色須有可讀對比。
-            2. 每頁選擇最適合的 layout：cover、section、title-and-content、
-               two-column、quote、data-focus、formula、summary。
-            3. cover 只用於第一頁；summary 只用於最後一頁。
-            4. 連續頁面不得全部使用同一 layout，版面要有節奏。
-            5. backgroundVariant 只能是 base、surface、accent、dark；
-               重點頁可用 accent 或 dark，其餘保持節制。
+            嚴禁輸出：
+            - 「視覺建議」「建議放置」「可搭配」「可以呈現」「設計師可使用」等顧問式文字。
+            - 對版面、顏色、圖示或圖片的自然語言說明出現在 title、subtitle 或 content。
+            - 每頁固定使用「標題＋四點條列」。
+            - 裝飾性漸層、玻璃卡片、emoji、無意義圓形或與主題無關的科技感裝飾。
+            - 不存在於來源的統計、引用、品牌、人物、圖表或圖片。
+
+            內容規則：
+            1. 每頁只有一個核心訊息；先寫主張或結論，再放支持它的事實。title 最多兩行，
+               避免「XX的介紹」「XX概述」等空泛標題。
+            2. subtitle 用一句話說清楚這頁的判斷、價值或因果關係，不得重複 title。
+            3. 採用適合繁體中文投影的 6×6 精簡精神：content 由 2～5 個可直接渲染的內容單位組成，
+               以換行分隔；每行盡量不超過 32 個中文字，細節移至 speakerNotes。
+            4. 內容應優先轉譯成對比、順序、層級、因果、循環、公式解讀或重點數字；
+               只有真正並列且無其他關係的資訊才使用一般條列。
+            5. 若來源含有真實數據，先判斷溝通目的：類別比較用長條圖思維、時間趨勢用折線圖思維、
+               組成比例才用圓餅圖思維、變數關係用散布圖思維。不得為了裝飾而製造圖表。
+            6. speakerNotes 保存來源依據、轉場與口頭補充，不得只是複製畫面文字。
+            7. visualBrief 是程式內部欄位，不會顯示。除非來源確實含有必須保留的圖片或圖表，
+               否則請輸出空字串；不得在此欄寫「建議」或描述虛構素材。
+
+            Layout 選擇與資料排列：
+            - cover：僅第一頁。title 是主標，subtitle 是核心承諾；content 最多 3 行必要資訊。
+            - section：只用於真正的章節轉場，文字極少，不得當一般內容頁。
+            - title-and-content：只用於無法形成其他視覺關係的單純解說，全套不得超過三分之一。
+            - two-column：用於比較、前後、問題／解法；content 必須正好 4 行，前 2 行屬左欄、後 2 行屬右欄。
+            - process：用於流程、階段、循環或操作步驟；content 依正確順序輸出 3～5 行，每行只放一個步驟。
+            - quote：只有文件存在可核對的原文引言時使用，禁止自行創作引言。
+            - data-focus：用於重點數字、關鍵名詞或結論；content 第一行必須是 20 字內的焦點，其餘行解釋意義。
+            - formula：用於公式；content 第一行只放完整公式，其餘行依序解釋變數與用途。
+            - summary：僅最後一頁，必須統整 3 個可帶走的結論，不得重複目錄。
+
+            視覺系統規則：
+            1. 根據文件主題選擇 editorial、academic-modern、swiss 或 data-led 方向，
+               先確定整份簡報的視覺概念，再生成各頁。
+            2. 色彩控制在一個主色、一個輔助色與一個點綴色以內；背景、白色、黑色與灰階中性色不計。
+               顏色必須有明確功能並符合投影可讀性，不得每頁任意換色。
+            3. 視覺概念必須來自文件主題，不要預設使用「深藍科技感」。
+            4. 建立固定字級層級：標題最大、焦點資訊次之、內文最小；整份簡報使用一致字體，
+               不得用縮小文字的方式塞入更多內容。
+            5. 保留安全邊距與充足留白。每頁只設一個主要視覺焦點，不要把所有空間填滿。
+            6. 優先以 HTML 可渲染的比較欄、流程關係、公式焦點、數字焦點和層級結構取代長段文字。
+            7. 相鄰兩頁不得使用相同 layout；同一 layout 最多連續出現一次。
+            8. backgroundVariant 只能是 base、surface、accent、dark；accent 或 dark 僅用於封面、章節轉場或關鍵結論。
+            9. 若簡報超過 10 頁且來源確實可分成 3～5 個章節，可安排精簡目錄；短簡報或單一主題不得硬加目錄。
+            10. 最後逐頁檢查：是否忠於來源、是否結論先行、是否能從教室後排閱讀、
+                是否有足夠留白，以及是否與前後頁構圖重複。
+
+            只回傳符合 schema 的 JSON。不要輸出 Markdown、解說、設計評語或任何 JSON 以外的內容。
             """;
 
         var input = BuildDocumentInput(extension, fileBytes, documentText, prompt);
@@ -333,7 +373,14 @@ public sealed class GeminiDeckGenerationService(
                 type = "object",
                 properties = new
                 {
-                    styleName = new { type = "string" },
+                    styleName = new
+                    {
+                        type = "string",
+                        @enum = new[]
+                        {
+                            "editorial", "academic-modern", "swiss", "data-led"
+                        }
+                    },
                     backgroundColor = ColorSchema("主要背景色"),
                     surfaceColor = ColorSchema("卡片或次要背景色"),
                     primaryColor = ColorSchema("主色"),
@@ -372,7 +419,7 @@ public sealed class GeminiDeckGenerationService(
                             @enum = new[]
                             {
                                 "cover", "section", "title-and-content", "two-column",
-                                "quote", "data-focus", "formula", "summary"
+                                "process", "quote", "data-focus", "formula", "summary"
                             }
                         },
                         sectionLabel = new { type = "string" },
