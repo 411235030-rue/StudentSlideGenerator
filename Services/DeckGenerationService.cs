@@ -14,7 +14,7 @@ public interface IDeckGenerationService
         string contentType,
         byte[] fileBytes,
         string audience,
-        int slideCount,
+        string detailMode,
         CancellationToken cancellationToken = default);
 }
 
@@ -25,13 +25,15 @@ public sealed class GeminiDeckGenerationService(
 {
     private const int MaxExtractedCharacters = 240_000;
     private const string DefaultModel = "gemini-3.6-flash";
+    private static readonly JsonSerializerOptions JsonOptions =
+        new() { PropertyNameCaseInsensitive = true };
 
     public async Task<SlideDeck> GenerateAsync(
         string fileName,
         string contentType,
         byte[] fileBytes,
         string audience,
-        int slideCount,
+        string detailMode,
         CancellationToken cancellationToken = default)
     {
         var apiKey =
@@ -50,13 +52,153 @@ public sealed class GeminiDeckGenerationService(
         }
 
         var extension = Path.GetExtension(fileName).ToLowerInvariant();
-        var prompt = BuildPrompt(fileName, audience, slideCount);
-        var input = extension == ".pdf"
-            ? BuildPdfInput(fileBytes, prompt)
-            : BuildTextInput(
-                DocumentTextExtractor.Extract(extension, fileBytes, MaxExtractedCharacters),
-                prompt);
+        var text = extension == ".pdf"
+            ? null
+            : DocumentTextExtractor.Extract(extension, fileBytes, MaxExtractedCharacters);
 
+        var outlineJson = await GenerateOutlineAsync(
+            apiKey,
+            fileName,
+            extension,
+            fileBytes,
+            text,
+            audience,
+            detailMode,
+            cancellationToken);
+
+        var outline = JsonSerializer.Deserialize<OutlinePlan>(outlineJson, JsonOptions)
+                      ?? throw new DeckGenerationException("Gemini 無法建立簡報大綱。");
+        outline.RecommendedSlideCount = Math.Clamp(outline.RecommendedSlideCount, 6, 18);
+
+        var deckJson = await GenerateDesignedDeckAsync(
+            apiKey,
+            fileName,
+            extension,
+            fileBytes,
+            text,
+            audience,
+            outline,
+            outlineJson,
+            cancellationToken);
+
+        try
+        {
+            var generated = JsonSerializer.Deserialize<GeneratedDeck>(deckJson, JsonOptions);
+            if (generated is null || generated.Slides.Count == 0)
+            {
+                throw new JsonException("Gemini returned an empty slide deck.");
+            }
+
+            return new SlideDeck
+            {
+                Title = generated.Title,
+                SourceFileName = fileName,
+                Audience = audience,
+                Theme = generated.Theme,
+                Slides = generated.Slides
+            };
+        }
+        catch (JsonException exception)
+        {
+            logger.LogWarning(exception, "Gemini returned an invalid designed deck.");
+            throw new DeckGenerationException("Gemini 回傳的排版資料不完整，請再產生一次。");
+        }
+    }
+
+    private async Task<string> GenerateOutlineAsync(
+        string apiKey,
+        string fileName,
+        string extension,
+        byte[] fileBytes,
+        string? documentText,
+        string audience,
+        string detailMode,
+        CancellationToken cancellationToken)
+    {
+        var prompt =
+            $"""
+            你是資深簡報編輯與資訊架構師。此階段只分析文件並規劃大綱，不撰寫投影片全文。
+
+            文件：{fileName}
+            對象：{audience}
+            深度模式：{detailMode}
+
+            切頁原則：
+            1. 先辨識文件的章節、概念層級、定義、公式、流程、案例、圖表與結論。
+            2. 每張投影片只能傳達一個核心訊息。
+            3. 定義、公式、流程、比較、案例與結論若內容足夠，必須拆成不同頁。
+            4. 不得為湊頁數重複前一頁；也不得把三個以上核心概念塞在同一頁。
+            5. 先建立敘事：為何重要 → 核心概念 → 方法或證據 → 應用 → 結論。
+            6. concise 建議 6～8 頁；standard 建議 9～12 頁；detailed 建議 13～18 頁；
+               auto 則依文件密度在 8～16 頁間決定。
+            7. 忠於文件，不得補造來源未提供的專有事實。
+            """;
+
+        var input = BuildDocumentInput(extension, fileBytes, documentText, prompt);
+        return await SendStructuredRequestAsync(
+            apiKey,
+            input,
+            BuildOutlineSchema(),
+            "大綱分析",
+            cancellationToken);
+    }
+
+    private async Task<string> GenerateDesignedDeckAsync(
+        string apiKey,
+        string fileName,
+        string extension,
+        byte[] fileBytes,
+        string? documentText,
+        string audience,
+        OutlinePlan outline,
+        string outlineJson,
+        CancellationToken cancellationToken)
+    {
+        var prompt =
+            $"""
+            你是簡報內容設計師與藝術指導。根據文件與已核定大綱，產生繁體中文的完整簡報設計資料。
+
+            文件：{fileName}
+            對象：{audience}
+            必須恰好產生 {outline.RecommendedSlideCount} 頁。
+
+            已核定大綱：
+            {outlineJson}
+
+            內容規則：
+            1. 嚴格依大綱順序，每頁只有一個核心訊息。
+            2. content 使用 2～5 個短重點，以換行分隔；投影文字要精簡。
+            3. subtitle 必須補充主旨，不能重複 title。
+            4. speakerNotes 說明依據、轉場與口頭補充，不能只是複製 content。
+            5. visualBrief 要具體描述可呈現的圖表、流程、公式、對照或重點數字；
+               沒有合適視覺時可留空，禁止假裝文件含有不存在的圖片。
+
+            排版規則：
+            1. 先依主題選擇一致的專業 theme，配色須有可讀對比。
+            2. 每頁選擇最適合的 layout：cover、section、title-and-content、
+               two-column、quote、data-focus、formula、summary。
+            3. cover 只用於第一頁；summary 只用於最後一頁。
+            4. 連續頁面不得全部使用同一 layout，版面要有節奏。
+            5. backgroundVariant 只能是 base、surface、accent、dark；
+               重點頁可用 accent 或 dark，其餘保持節制。
+            """;
+
+        var input = BuildDocumentInput(extension, fileBytes, documentText, prompt);
+        return await SendStructuredRequestAsync(
+            apiKey,
+            input,
+            BuildDeckSchema(outline.RecommendedSlideCount),
+            "投影片設計",
+            cancellationToken);
+    }
+
+    private async Task<string> SendStructuredRequestAsync(
+        string apiKey,
+        object[] input,
+        object schema,
+        string stage,
+        CancellationToken cancellationToken)
+    {
         var request = new
         {
             model = configuration["Gemini:Model"] ?? DefaultModel,
@@ -66,7 +208,7 @@ public sealed class GeminiDeckGenerationService(
             {
                 type = "text",
                 mime_type = "application/json",
-                schema = BuildResponseSchema(slideCount)
+                schema
             }
         };
 
@@ -82,54 +224,46 @@ public sealed class GeminiDeckGenerationService(
         if (!response.IsSuccessStatusCode)
         {
             logger.LogWarning(
-                "Gemini request failed with status {StatusCode}: {Response}",
+                "Gemini stage {Stage} failed with status {StatusCode}: {Response}",
+                stage,
                 (int)response.StatusCode,
                 LimitForLog(responseBody));
 
             throw new DeckGenerationException(
-                $"Gemini 產生失敗（HTTP {(int)response.StatusCode}），請確認 API Key 與模型權限。");
+                $"{stage}失敗（HTTP {(int)response.StatusCode}），請確認 API Key 與模型權限。");
         }
 
         try
         {
-            var json = ExtractOutputText(responseBody);
-            var generated = JsonSerializer.Deserialize<GeneratedDeck>(
-                json,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-
-            if (generated is null || generated.Slides.Count == 0)
-            {
-                throw new JsonException("Gemini returned an empty slide deck.");
-            }
-
-            return new SlideDeck
-            {
-                Title = generated.Title,
-                SourceFileName = fileName,
-                Audience = audience,
-                Slides = generated.Slides
-            };
+            return ExtractOutputText(responseBody);
         }
         catch (JsonException exception)
         {
-            logger.LogWarning(exception, "Gemini returned an invalid structured response.");
-            throw new DeckGenerationException("Gemini 回傳的簡報格式不完整，請再產生一次。");
+            logger.LogWarning(exception, "Gemini stage {Stage} returned invalid JSON.", stage);
+            throw new DeckGenerationException($"{stage}回傳格式錯誤，請再試一次。");
         }
     }
 
-    private static object[] BuildPdfInput(byte[] fileBytes, string prompt) =>
-    [
-        new
-        {
-            type = "document",
-            data = Convert.ToBase64String(fileBytes),
-            mime_type = "application/pdf"
-        },
-        new { type = "text", text = prompt }
-    ];
-
-    private static object[] BuildTextInput(string documentText, string prompt)
+    private static object[] BuildDocumentInput(
+        string extension,
+        byte[] fileBytes,
+        string? documentText,
+        string prompt)
     {
+        if (extension == ".pdf")
+        {
+            return
+            [
+                new
+                {
+                    type = "document",
+                    data = Convert.ToBase64String(fileBytes),
+                    mime_type = "application/pdf"
+                },
+                new { type = "text", text = prompt }
+            ];
+        }
+
         if (string.IsNullOrWhiteSpace(documentText))
         {
             throw new DeckGenerationException("無法從文件擷取文字，請確認檔案沒有損壞。");
@@ -140,38 +274,84 @@ public sealed class GeminiDeckGenerationService(
             new
             {
                 type = "text",
-                text = $"{prompt}\n\n以下是文件內容：\n---\n{documentText}\n---"
+                text = $"{prompt}\n\n文件內容：\n---\n{documentText}\n---"
             }
         ];
     }
 
-    private static string BuildPrompt(string fileName, string audience, int slideCount) =>
-        $"""
-        你是一位專業的教學簡報設計師。請根據使用者提供的文件製作繁體中文簡報。
-
-        文件名稱：{fileName}
-        簡報對象：{audience}
-        投影片數量：必須恰好為 {slideCount} 頁
-
-        規則：
-        1. 忠於文件內容，不得捏造文件未提供的事實。
-        2. 第一頁為清楚的封面或主題導入，最後一頁整理核心結論。
-        3. 每頁只傳達一個主要概念，內容適合直接投影。
-        4. content 使用 2 至 5 個短重點，以換行分隔；不要使用 Markdown 表格。
-        5. layout 只能是 title、title-and-content、two-column、quote、summary 之一。
-        6. speakerNotes 補充講者應說明但不必顯示在畫面上的內容。
-        7. 若 PDF 含重要圖片、圖表或表格，請在相關頁的 speakerNotes 說明其意義。
-        """;
-
-    private static object BuildResponseSchema(int slideCount) => new
+    private static object BuildOutlineSchema() => new
     {
         type = "object",
         properties = new
         {
-            title = new
+            title = new { type = "string" },
+            narrative = new
             {
                 type = "string",
-                description = "整份簡報的短標題"
+                description = "簡報從開場到結論的敘事主線"
+            },
+            recommendedSlideCount = new
+            {
+                type = "integer",
+                minimum = 6,
+                maximum = 18
+            },
+            sections = new
+            {
+                type = "array",
+                items = new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        title = new { type = "string" },
+                        purpose = new { type = "string" },
+                        keyPoints = new
+                        {
+                            type = "array",
+                            items = new { type = "string" }
+                        },
+                        slideCount = new { type = "integer", minimum = 1, maximum = 5 }
+                    },
+                    required = new[] { "title", "purpose", "keyPoints", "slideCount" },
+                    additionalProperties = false
+                }
+            }
+        },
+        required = new[] { "title", "narrative", "recommendedSlideCount", "sections" },
+        additionalProperties = false
+    };
+
+    private static object BuildDeckSchema(int slideCount) => new
+    {
+        type = "object",
+        properties = new
+        {
+            title = new { type = "string" },
+            theme = new
+            {
+                type = "object",
+                properties = new
+                {
+                    styleName = new { type = "string" },
+                    backgroundColor = ColorSchema("主要背景色"),
+                    surfaceColor = ColorSchema("卡片或次要背景色"),
+                    primaryColor = ColorSchema("主色"),
+                    accentColor = ColorSchema("強調色"),
+                    textColor = ColorSchema("主要文字色"),
+                    mutedTextColor = ColorSchema("次要文字色"),
+                    fontFamily = new
+                    {
+                        type = "string",
+                        @enum = new[] { "Noto Sans TC", "Microsoft JhengHei", "Arial" }
+                    }
+                },
+                required = new[]
+                {
+                    "styleName", "backgroundColor", "surfaceColor", "primaryColor",
+                    "accentColor", "textColor", "mutedTextColor", "fontFamily"
+                },
+                additionalProperties = false
             },
             slides = new
             {
@@ -184,35 +364,50 @@ public sealed class GeminiDeckGenerationService(
                     properties = new
                     {
                         title = new { type = "string" },
+                        subtitle = new { type = "string" },
                         content = new { type = "string" },
                         layout = new
                         {
                             type = "string",
                             @enum = new[]
                             {
-                                "title",
-                                "title-and-content",
-                                "two-column",
-                                "quote",
-                                "summary"
+                                "cover", "section", "title-and-content", "two-column",
+                                "quote", "data-focus", "formula", "summary"
                             }
                         },
+                        sectionLabel = new { type = "string" },
+                        backgroundVariant = new
+                        {
+                            type = "string",
+                            @enum = new[] { "base", "surface", "accent", "dark" }
+                        },
+                        visualBrief = new { type = "string" },
                         speakerNotes = new { type = "string" }
                     },
-                    required = new[] { "title", "content", "layout", "speakerNotes" },
+                    required = new[]
+                    {
+                        "title", "subtitle", "content", "layout", "sectionLabel",
+                        "backgroundVariant", "visualBrief", "speakerNotes"
+                    },
                     additionalProperties = false
                 }
             }
         },
-        required = new[] { "title", "slides" },
+        required = new[] { "title", "theme", "slides" },
         additionalProperties = false
+    };
+
+    private static object ColorSchema(string description) => new
+    {
+        type = "string",
+        description = $"{description}，必須是 #RRGGBB"
     };
 
     private static string ExtractOutputText(string responseBody)
     {
         using var response = JsonDocument.Parse(responseBody);
-
         var steps = response.RootElement.GetProperty("steps");
+
         for (var stepIndex = steps.GetArrayLength() - 1; stepIndex >= 0; stepIndex--)
         {
             var step = steps[stepIndex];
@@ -239,9 +434,26 @@ public sealed class GeminiDeckGenerationService(
     private static string LimitForLog(string value) =>
         value.Length <= 1_000 ? value : value[..1_000];
 
+    private sealed class OutlinePlan
+    {
+        public string Title { get; set; } = string.Empty;
+        public string Narrative { get; set; } = string.Empty;
+        public int RecommendedSlideCount { get; set; } = 10;
+        public List<OutlineSection> Sections { get; set; } = [];
+    }
+
+    private sealed class OutlineSection
+    {
+        public string Title { get; set; } = string.Empty;
+        public string Purpose { get; set; } = string.Empty;
+        public List<string> KeyPoints { get; set; } = [];
+        public int SlideCount { get; set; }
+    }
+
     private sealed class GeneratedDeck
     {
         public string Title { get; set; } = string.Empty;
+        public PresentationTheme Theme { get; set; } = new();
         public List<SlideItem> Slides { get; set; } = [];
     }
 }
