@@ -1,0 +1,236 @@
+@page "/"
+@rendermode InteractiveServer
+@inject IDeckGenerationService DeckGenerator
+@inject IJSRuntime JS
+
+<PageTitle>Student Slide Generator</PageTitle>
+
+<section class="hero">
+    <div>
+        <p class="eyebrow">AI PRESENTATION WORKSPACE</p>
+        <h1>把課堂文件，整理成能直接修改的簡報。</h1>
+        <p class="hero-copy">
+            上傳 PDF、Word、Markdown 或純文字檔，先產生結構化投影片，
+            再於同一個頁面檢查內容、調整版面並下載結果。
+        </p>
+    </div>
+    <div class="hero-card">
+        <span>目前流程</span>
+        <strong>文件 → 簡報草稿 → 編輯 → JSON</strong>
+        <small>AI API 與 PPTX 匯出將接在既有服務介面上。</small>
+    </div>
+</section>
+
+<section class="workspace">
+    <aside class="control-panel">
+        <div class="panel-heading">
+            <span class="step">01</span>
+            <div>
+                <h2>上傳教材</h2>
+                <p>單檔上限 20 MB</p>
+            </div>
+        </div>
+
+        <label class="upload-zone">
+            <InputFile OnChange="HandleFileSelected"
+                       accept=".pdf,.docx,.txt,.md" />
+            <span class="upload-icon">↑</span>
+            <strong>@(selectedFile?.Name ?? "選擇文件")</strong>
+            <small>PDF · DOCX · TXT · MD</small>
+        </label>
+
+        @if (selectedFile is not null)
+        {
+            <div class="file-row">
+                <div>
+                    <strong>@selectedFile.Name</strong>
+                    <small>@FormatBytes(selectedFile.Size)</small>
+                </div>
+                <button class="text-button" @onclick="ClearFile">移除</button>
+            </div>
+        }
+
+        <label class="field-label" for="audience">簡報對象</label>
+        <input id="audience" class="text-input" @bind="audience"
+               placeholder="例如：大學課堂報告" />
+
+        <label class="field-label" for="slideCount">預計頁數</label>
+        <input id="slideCount" class="text-input" type="number"
+               min="3" max="20" @bind="slideCount" />
+
+        <button class="primary-button"
+                disabled="@(selectedFile is null || isGenerating)"
+                @onclick="GenerateDeck">
+            @(isGenerating ? "正在整理內容…" : "產生簡報草稿")
+        </button>
+
+        @if (!string.IsNullOrWhiteSpace(errorMessage))
+        {
+            <p class="error-message">@errorMessage</p>
+        }
+
+        <div class="privacy-note">
+            <strong>開發階段說明</strong>
+            <p>目前使用示範產生器，不會把上傳內容送到外部 AI。</p>
+        </div>
+    </aside>
+
+    <div class="preview-panel">
+        @if (deck is null)
+        {
+            <div class="empty-state">
+                <div class="empty-art">
+                    <span></span><span></span><span></span>
+                </div>
+                <h2>你的簡報會顯示在這裡</h2>
+                <p>先上傳一份教材，系統會建立可編輯的投影片草稿。</p>
+            </div>
+        }
+        else
+        {
+            <div class="preview-toolbar">
+                <div>
+                    <p class="eyebrow">LIVE PREVIEW</p>
+                    <h2>@deck.Title</h2>
+                </div>
+                <div class="toolbar-actions">
+                    <button class="secondary-button" @onclick="AddSlide">新增頁面</button>
+                    <button class="primary-button compact" @onclick="DownloadJson">下載 JSON</button>
+                </div>
+            </div>
+
+            <div class="deck-editor">
+                @for (var index = 0; index < deck.Slides.Count; index++)
+                {
+                    var slide = deck.Slides[index];
+                    <article class="slide-card">
+                        <div class="slide-number">@(index + 1).ToString("00")</div>
+                        <div class="slide-canvas">
+                            <input class="slide-title" @bind="slide.Title" />
+                            <textarea class="slide-body"
+                                      rows="7"
+                                      @bind="slide.Content"></textarea>
+                            <div class="slide-footer">
+                                <span>@deck.Audience</span>
+                                <button class="delete-button"
+                                        title="刪除此頁"
+                                        @onclick="() => DeleteSlide(slide)">刪除</button>
+                            </div>
+                        </div>
+                    </article>
+                }
+            </div>
+        }
+    </div>
+</section>
+
+@code {
+    private const long MaxFileSize = 20 * 1024 * 1024;
+
+    private IBrowserFile? selectedFile;
+    private SlideDeck? deck;
+    private string audience = "大學課堂報告";
+    private int slideCount = 6;
+    private bool isGenerating;
+    private string? errorMessage;
+
+    private void HandleFileSelected(InputFileChangeEventArgs eventArgs)
+    {
+        errorMessage = null;
+        deck = null;
+
+        var file = eventArgs.File;
+        if (file.Size > MaxFileSize)
+        {
+            selectedFile = null;
+            errorMessage = "檔案超過 20 MB，請壓縮後再試一次。";
+            return;
+        }
+
+        var extension = Path.GetExtension(file.Name).ToLowerInvariant();
+        if (extension is not (".pdf" or ".docx" or ".txt" or ".md"))
+        {
+            selectedFile = null;
+            errorMessage = "目前僅支援 PDF、DOCX、TXT 與 MD。";
+            return;
+        }
+
+        selectedFile = file;
+    }
+
+    private void ClearFile()
+    {
+        selectedFile = null;
+        deck = null;
+        errorMessage = null;
+    }
+
+    private async Task GenerateDeck()
+    {
+        if (selectedFile is null)
+        {
+            return;
+        }
+
+        try
+        {
+            isGenerating = true;
+            errorMessage = null;
+            slideCount = Math.Clamp(slideCount, 3, 20);
+            deck = await DeckGenerator.GenerateAsync(
+                selectedFile.Name,
+                selectedFile.Size,
+                audience,
+                slideCount);
+        }
+        catch (Exception)
+        {
+            errorMessage = "產生草稿時發生錯誤，請稍後再試。";
+        }
+        finally
+        {
+            isGenerating = false;
+        }
+    }
+
+    private void AddSlide()
+    {
+        deck?.Slides.Add(new SlideItem
+        {
+            Title = "新增投影片",
+            Content = "在這裡輸入重點內容。"
+        });
+    }
+
+    private void DeleteSlide(SlideItem slide)
+    {
+        if (deck is not null && deck.Slides.Count > 1)
+        {
+            deck.Slides.Remove(slide);
+        }
+    }
+
+    private async Task DownloadJson()
+    {
+        if (deck is null)
+        {
+            return;
+        }
+
+        var json = JsonSerializer.Serialize(deck, new JsonSerializerOptions
+        {
+            WriteIndented = true
+        });
+
+        await JS.InvokeVoidAsync(
+            "slideGenerator.downloadText",
+            "slides.json",
+            json,
+            "application/json");
+    }
+
+    private static string FormatBytes(long bytes) =>
+        bytes < 1024 * 1024
+            ? $"{bytes / 1024d:0.0} KB"
+            : $"{bytes / 1024d / 1024d:0.0} MB";
+}
