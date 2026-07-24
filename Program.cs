@@ -9,7 +9,11 @@ builder.Services
     .AddRazorComponents()
     .AddInteractiveServerComponents();
 
-builder.Services.AddScoped<IDeckGenerationService, DemoDeckGenerationService>();
+builder.Services.AddHttpClient<IDeckGenerationService, GeminiDeckGenerationService>(client =>
+{
+    client.BaseAddress = new Uri("https://generativelanguage.googleapis.com/");
+    client.Timeout = TimeSpan.FromMinutes(3);
+});
 
 var app = builder.Build();
 
