@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>StudentSlideGenerator.Api</RootNamespace>
+    <UserSecretsId>StudentSlideGenerator.Api-Local</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
