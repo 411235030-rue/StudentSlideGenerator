@@ -3,9 +3,9 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Xml.Linq;
-using StudentSlideGenerator.Models;
+using StudentSlideGenerator.Shared.Models;
 
-namespace StudentSlideGenerator.Services;
+namespace StudentSlideGenerator.Api.Services;
 
 public interface IDeckGenerationService
 {

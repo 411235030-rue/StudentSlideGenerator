@@ -1,6 +1,5 @@
 @page "/"
-@rendermode InteractiveServer
-@inject IDeckGenerationService DeckGenerator
+@inject DeckApiClient DeckGenerator
 @inject IJSRuntime JS
 
 <PageTitle>Student Slide Generator</PageTitle>
@@ -221,7 +220,7 @@
                 audience,
                 detailMode);
         }
-        catch (DeckGenerationException exception)
+        catch (DeckApiException exception)
         {
             errorMessage = exception.Message;
         }
@@ -280,7 +279,7 @@
             return;
         }
 
-        var html = HtmlDeckExporter.Export(deck);
+        var html = await DeckGenerator.ExportHtmlAsync(deck);
         await JS.InvokeVoidAsync(
             "slideGenerator.downloadText",
             "presentation.html",

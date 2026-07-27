@@ -1,9 +1,9 @@
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
-using StudentSlideGenerator.Models;
+using StudentSlideGenerator.Shared.Models;
 
-namespace StudentSlideGenerator.Services;
+namespace StudentSlideGenerator.Api.Services;
 
 public static class HtmlDeckExporter
 {

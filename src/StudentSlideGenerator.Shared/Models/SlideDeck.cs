@@ -1,4 +1,4 @@
-namespace StudentSlideGenerator.Models;
+namespace StudentSlideGenerator.Shared.Models;
 
 public sealed class SlideDeck
 {

@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [ main ]
   push:
-    branches: [ main, agent/blazor-mvp ]
+    branches: [ main ]
 
 permissions:
   contents: read
@@ -23,7 +23,7 @@ jobs:
           dotnet-version: 8.0.x
 
       - name: Restore dependencies
-        run: dotnet restore
+        run: dotnet restore StudentSlideGenerator.sln
 
       - name: Build
-        run: dotnet build --configuration Release --no-restore
+        run: dotnet build StudentSlideGenerator.sln --configuration Release --no-restore
