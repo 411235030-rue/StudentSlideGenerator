@@ -3,12 +3,12 @@ using StudentSlideGenerator.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-const long maxFileSize = 20 * 1024 * 1024;
+const long maxRequestSize = 21 * 1024 * 1024;
 
 builder.Services.AddControllers();
 builder.Services.Configure<FormOptions>(options =>
 {
-    options.MultipartBodyLengthLimit = maxFileSize;
+    options.MultipartBodyLengthLimit = maxRequestSize;
 });
 
 var allowedOrigins = builder.Configuration
@@ -37,7 +37,7 @@ var app = builder.Build();
 
 if (!app.Environment.IsDevelopment())
 {
-    app.UseExceptionHandler("/error");
+    app.UseExceptionHandler();
     app.UseHsts();
 }
 
