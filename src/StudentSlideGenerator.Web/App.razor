@@ -1,0 +1,18 @@
+<Router AppAssembly="@typeof(App).Assembly">
+    <Found Context="routeData">
+        <RouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)" />
+        <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+    </Found>
+    <NotFound>
+        <LayoutView Layout="@typeof(MainLayout)">
+            <PageTitle>找不到頁面</PageTitle>
+            <section class="empty-state">
+                <div>
+                    <p class="eyebrow">PAGE NOT FOUND</p>
+                    <h1>找不到這個頁面。</h1>
+                    <a class="secondary-button error-home-link" href="/">返回首頁</a>
+                </div>
+            </section>
+        </LayoutView>
+    </NotFound>
+</Router>
