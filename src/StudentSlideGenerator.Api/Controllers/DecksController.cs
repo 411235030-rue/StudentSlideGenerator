@@ -9,12 +9,13 @@ namespace StudentSlideGenerator.Api.Controllers;
 public sealed class DecksController(IDeckGenerationService deckGenerator) : ControllerBase
 {
     private const long MaxFileSize = 20 * 1024 * 1024;
+    private const long MaxRequestSize = 21 * 1024 * 1024;
     private static readonly HashSet<string> AllowedExtensions =
         new(StringComparer.OrdinalIgnoreCase) { ".pdf", ".docx", ".txt", ".md" };
 
     [HttpPost("generate")]
     [Consumes("multipart/form-data")]
-    [RequestSizeLimit(MaxFileSize)]
+    [RequestSizeLimit(MaxRequestSize)]
     public async Task<ActionResult<SlideDeck>> Generate(
         [FromForm] DeckGenerationForm form,
         CancellationToken cancellationToken)
@@ -46,7 +47,7 @@ public sealed class DecksController(IDeckGenerationService deckGenerator) : Cont
 
         try
         {
-            await using var source = form.File.OpenReadStream(MaxFileSize);
+            await using var source = form.File.OpenReadStream();
             using var buffer = new MemoryStream();
             await source.CopyToAsync(buffer, cancellationToken);
 
